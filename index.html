@@ -307,7 +307,7 @@
     // 기본 DB 불러오기
     async function loadDefaultDB() {
         try {
-            const targetFile = 'MGKOR.db'; 
+            const targetFile = 'MGKOR.DB'; 
             const response = await fetch(targetFile);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             await initDatabase(await response.arrayBuffer());
