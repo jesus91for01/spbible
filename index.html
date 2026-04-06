@@ -289,7 +289,7 @@
 
         async function loadDefaultDB() {
             try {
-                const response = await fetch('MGKOR.db');
+                const response = await fetch('MGKOR.DB');
                 if (!response.ok) throw new Error(response.status);
                 await initDatabase(await response.arrayBuffer());
             } catch (error) {
