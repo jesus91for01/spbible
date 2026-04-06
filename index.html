@@ -23,9 +23,16 @@
             from { opacity: 0; transform: translateY(5px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        /* 드래그 방지용 CSS */
+        .no-select {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
     </style>
 </head>
-<body class="flex flex-col items-center justify-center min-h-screen p-4">
+<body class="flex flex-col items-center justify-center min-h-screen p-4 no-select">
 
 <div class="w-full max-w-2xl bg-white rounded-3xl shadow-2xl shadow-sky-200/50 p-8 space-y-6">
     <!-- 헤더 -->
@@ -41,12 +48,12 @@
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <p id="db-status" class="text-lg font-bold text-sky-700">동일 폴더의 성경 데이터(MGKOR.DB)를 불러오는 중입니다...</p>
+            <p id="db-status" class="text-lg font-bold text-sky-700">동일 폴더의 성경 데이터(MGKOR.db)를 불러오는 중입니다...</p>
         </div>
         <div id="manual-load-container" class="hidden mt-4 animate-fade-in">
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-left">
                 <p class="text-amber-800 text-sm font-bold mb-1">⚠️ 브라우저 보안 정책으로 자동 불러오기가 제한되었습니다.</p>
-                <p class="text-amber-700 text-xs leading-relaxed">아래 버튼을 눌러 동일 폴더에 있는 <strong>MGKOR.DB</strong> 또는 성경 DB 파일을 직접 선택해 주세요.</p>
+                <p class="text-amber-700 text-xs leading-relaxed">아래 버튼을 눌러 동일 폴더에 있는 <strong>MGKOR.db</strong> 또는 성경 DB 파일을 직접 선택해 주세요.</p>
             </div>
             <label for="db-file-input" class="cursor-pointer w-full bg-sky-500 text-white font-bold py-3 px-4 rounded-xl hover:bg-sky-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-all transform hover:scale-105 inline-block shadow-md">
                 수동으로 DB 파일 선택하기
@@ -188,6 +195,40 @@
 </div>
 
 <script>
+    // =========================================================================
+    // [보안 모듈] 우클릭, 개발자 도구, 디버깅 모드 방지
+    // =========================================================================
+    (function initSecurity() {
+        // 1. 마우스 우클릭 (컨텍스트 메뉴) 완벽 차단
+        document.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+        });
+
+        // 2. 개발자 도구 진입용 키보드 단축키 차단
+        document.addEventListener('keydown', function(e) {
+            if (
+                e.key === 'F12' || e.keyCode === 123 || // F12 키
+                (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'i') || // Ctrl+Shift+I (개발자 도구)
+                (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'j') || // Ctrl+Shift+J (콘솔)
+                (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') || // Ctrl+Shift+C (요소 검사)
+                (e.ctrlKey && e.key.toLowerCase() === 'u') // Ctrl+U (소스 보기)
+            ) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        });
+
+        // 3. 디버깅 모드 방해 (안티 디버깅)
+        // 누군가 강제로 개발자 도구를 열었을 때, 무한 디버거를 발생시켜 소스코드 분석을 방해합니다.
+        setInterval(function() {
+            (function() {
+                return false;
+            }['constructor']('debugger')());
+        }, 50);
+    })();
+    // =========================================================================
+
     // DOM 요소 캐싱
     const DOM = {
         dbLoader: document.getElementById('db-loader'),
@@ -250,11 +291,9 @@
             // ✨ 테이블명 동적 감지 로직 강화
             const tablesRes = dbInstance.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'");
             if (tablesRes.length > 0) {
-                // 불필요한 메타데이터 테이블 제외
                 let validTables = tablesRes[0].values.map(v => v[0]).filter(n => !['info', 'metadata', 'details', 'about', 'crossreference', 'notes', 'dictionary', 'strongs'].includes(n.toLowerCase()));
                 
                 let targetTable = null;
-                // 성경 데이터가 있을 법한 주요 테이블명 찾기
                 for (const candidate of ['bible', 'verses', 'clause', 'scripture', 't_bible', 'book']) {
                     const found = validTables.find(t => t.toLowerCase() === candidate);
                     if (found) {
@@ -263,7 +302,6 @@
                     }
                 }
                 
-                // 찾지 못했다면 제외하고 남은 첫 번째 테이블을 사용
                 if (!targetTable && validTables.length > 0) {
                     targetTable = validTables[0];
                 }
@@ -271,7 +309,6 @@
                 if (targetTable) {
                     dbSchema.table = targetTable;
                     
-                    // ✨ 컬럼명 동적 감지 로직 (PRAGMA 사용)
                     const colRes = dbInstance.exec(`PRAGMA table_info("${targetTable}")`);
                     if (colRes.length > 0) {
                         const cols = colRes[0].values.map(v => v[1]);
@@ -285,8 +322,6 @@
                             return null;
                         };
 
-                        // 실제 데이터베이스 컬럼 이름을 찾아 매핑합니다.
-                        // 만약 예상된 이름 목록에서 찾지 못하면 가장 확실한 순서(첫번째, 두번째..)나 가장 마지막 컬럼을 대신 선택하여 오류를 막습니다.
                         dbSchema.book = findCol(['book', 'book_id', 'b', 'book_number', 'bookid']) || cols[0];
                         dbSchema.chapter = findCol(['chapter', 'c', 'chapter_id', 'chapternumber']) || cols[1];
                         dbSchema.verse = findCol(['verse', 'v', 'verse_id', 'versenumber']) || cols[2];
@@ -338,24 +373,19 @@
 
     // 66권 성경 매핑 초기화 (스페인어 표출 적용)
     function initBookMappings() {
-        // ID, 한국어명, 한국어약어, 스페인어명
         const books = `1,창세기,창,Génesis\n2,출애굽기,출,Éxodo\n3,레위기,레,Levítico\n4,민수기,민,Números\n5,신명기,신,Deuteronomio\n6,여호수아,수,Josué\n7,사사기,삿,Jueces\n8,룻기,룻,Rut\n9,사무엘상,삼상,1 Samuel\n10,사무엘하,삼하,2 Samuel\n11,열왕기상,왕상,1 Reyes\n12,열왕기하,왕하,2 Reyes\n13,역대상,대상,1 Crónicas\n14,역대하,대하,2 Crónicas\n15,에스라,스,Esdras\n16,느헤미야,느,Nehemías\n17,에스더,에,Ester\n18,욥기,욥,Job\n19,시편,시,Salmos\n20,잠언,잠,Proverbios\n21,전도서,전,Eclesiastés\n22,아가,아,Cantares\n23,이사야,사,Isaías\n24,예레미야,렘,Jeremías\n25,예레미야애가,애,Lamentaciones\n26,에스겔,겔,Ezequiel\n27,다니엘,단,Daniel\n28,호세아,호,Oseas\n29,요엘,욜,Joel\n30,아모스,암,Amós\n31,오바댜,옵,Abdías\n32,요나,욘,Jonás\n33,미가,미,Miqueas\n34,나훔,나,Nahúm\n35,하박국,합,Habacuc\n36,스바냐,습,Sofonías\n37,학개,학,Hageo\n38,스가랴,슥,Zacarías\n39,말라기,말,Malaquías\n40,마태복음,마,Mateo\n41,마가복음,막,Marcos\n42,누가복음,눅,Lucas\n43,요한복음,요,Juan\n44,사도행전,행,Hechos\n45,로마서,롬,Romanos\n46,고린도전서,고전,1 Corintios\n47,고린도후서,고후,2 Corintios\n48,갈라디아서,갈,Gálatas\n49,에베소서,엡,Efesios\n50,빌립보서,빌,Filipenses\n51,골로새서,골,Colosenses\n52,데살로니가전서,살전,1 Tesalonicenses\n53,데살로니가후서,살후,2 Tesalonicenses\n54,디모데전서,딤전,1 Timoteo\n55,디모데후서,딤후,2 Timoteo\n56,디도서,딛,Tito\n57,빌레몬서,몬,Filemón\n58,히브리서,히,Hebreos\n59,야고보서,약,Santiago\n60,베드로전서,벧전,1 Pedro\n61,베드로후서,벧후,2 Pedro\n62,요한1서,요일,1 Juan\n63,요한2서,요이,2 Juan\n64,요한3서,요삼,3 Juan\n65,유다서,유,Judas\n66,요한계시록,계,Apocalipsis`;
         
         books.split('\n').forEach(row => {
             const [idStr, fullName, shortName, spanishName] = row.split(',');
             if (idStr && fullName && shortName && spanishName) {
                 const id = parseInt(idStr, 10);
-                // 화면 표출 데이터(n)에 스페인어 명칭 할당
                 bookNameMap[id] = { n: spanishName.trim(), a: shortName.trim(), kor: fullName.trim() };
-                
-                // 검색은 사역자님의 편의를 위해 한국어로 가능하도록 기존 매핑 유지
                 bookSearchMap[fullName.trim().toLowerCase()] = id;
                 bookSearchMap[shortName.trim().toLowerCase()] = id;
             }
         });
     }
 
-    // 구절 텍스트 파싱 로직
     function parseVerseQuery(query) {
         query = query.trim().toLowerCase();
         const match = query.match(/^([가-힣\d]+)[\s\.]*(\d+)[\s]*[:\.]?[\s]*(\d+)(?:[\s-]*(\d+))?$/);
@@ -368,11 +398,9 @@
         return { id: bookId, n: bookNameMap[bookId].n, c: ch, s: startV, e: endV };
     }
 
-    // 말씀 검색 (스마트 스키마 적용 & 쿼리 따옴표 처리)
     function fetchVerses(parsed) {
         if (!dbInstance || !parsed) return null;
         try {
-            // DB 스키마 컬럼명에 특수문자나 예약어가 있어도 오류가 나지 않도록 쌍따옴표("")로 감쌌습니다.
             const query = `SELECT "${dbSchema.verse}" as verse, "${dbSchema.text}" as text FROM "${dbSchema.table}" WHERE "${dbSchema.book}" = :b AND "${dbSchema.chapter}" = :c AND "${dbSchema.verse}" >= :s AND "${dbSchema.verse}" <= :e ORDER BY "${dbSchema.verse}"`;
             const stmt = dbInstance.prepare(query);
             stmt.bind({ ':b': parsed.id, ':c': parsed.c, ':s': parsed.s, ':e': parsed.e });
@@ -390,7 +418,6 @@
         }
     }
 
-    // 단어 검색 (스마트 스키마 적용 & 쿼리 따옴표 처리)
     function searchKeyword(keyword) {
         if (!dbInstance || !keyword) return [];
         const words = keyword.trim().split(' ').filter(x => x);
@@ -414,7 +441,6 @@
         }
     }
 
-    // 프로젝터 창 열기
     function openProjectorWindow() {
         const w = 800, h = 600, left = (screen.width / 2) - (w / 2) + screen.width, top = (screen.height / 2) - (h / 2);
         let iconUrl = 'icon.ico';
@@ -432,8 +458,13 @@
                     #verse-container{transition:opacity 0.3s ease-in-out;}
                     ::-webkit-scrollbar{width:10px;}::-webkit-scrollbar-track{background:#1f2937;}
                     ::-webkit-scrollbar-thumb{background:#4b5563;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#6b7280;}
+                    .no-select { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
                 </style>
-                </head><body class="text-white h-screen overflow-y-auto p-12 flex flex-col justify-center">
+                </head>
+                <!-- 새 창에도 우클릭 및 단축키 차단 적용 -->
+                <body class="text-white h-screen overflow-y-auto p-12 flex flex-col justify-center no-select" 
+                      oncontextmenu="return false;" 
+                      onkeydown="if(event.keyCode==123 || (event.ctrlKey && event.shiftKey) || (event.ctrlKey && event.keyCode==85)) return false;">
                 <div id="verse-container" class="w-full text-left">
                     <div id="verse-text">
                         <div class="flex items-center justify-center h-[calc(100vh-6rem)] w-full">
@@ -454,7 +485,6 @@
         }
     }
 
-    // 화면 송출 및 UI 이벤트 로직
     function handleVerseSearch() {
         clearCheckboxes();
         DOM.resultDisplay.innerHTML = '';
