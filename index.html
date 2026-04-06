@@ -6,6 +6,7 @@
     <title>Bible</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap" rel="stylesheet">
+    <!-- SQLite 데이터베이스 처리를 위한 라이브러리 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-asm.js"></script>
     <style>
         body { font-family: 'Noto Sans KR', sans-serif; background-color: #f0f9ff; }
@@ -187,379 +188,551 @@
 </div>
 
 <script>
-(function(){
-    // 보안 및 개발자 도구 방지 코어 스크립트
-    const _sec = "setInterval(()=>{debugger;},50);document.addEventListener('contextmenu',e=>e.preventDefault());document.addEventListener('keydown',e=>{if(e.key==='F12'||(e.ctrlKey&&e.shiftKey&&['I','J','C'].includes(e.key.toUpperCase()))||(e.ctrlKey&&e.key.toUpperCase()==='U')){e.preventDefault();}});";
-    Function(_sec)();
-
-    const _d = {
-        l1: document.getElementById('db-loader'),
-        l2: document.getElementById('db-file-input'),
-        l3: document.getElementById('db-status'),
-        l4: document.getElementById('loading-spinner'),
-        l5: document.getElementById('manual-load-container'),
-        l6: document.getElementById('main-content'),
-        b1: document.getElementById('open-window-btn'),
-        b2: document.getElementById('display-btn'),
-        i1: document.getElementById('verse-input'),
-        i2: document.getElementById('keyword-input'),
-        b3: document.getElementById('keyword-search-btn'),
-        i3: document.getElementById('custom-text-input'),
-        b4: document.getElementById('custom-text-btn'),
-        v1: document.getElementById('initial-view'),
-        v2: document.getElementById('control-panel'),
-        v3: document.getElementById('result-display'),
-        v4: document.getElementById('selection-controls'),
-        b5: document.getElementById('display-checked-btn'),
-        s1: document.getElementById('font-size-slider'),
-        s2: document.getElementById('font-size-value'),
-        s3: document.getElementById('line-height-slider'),
-        s4: document.getElementById('line-height-value'),
-        m1: document.getElementById('style-modal'),
-        m2: document.getElementById('guide-modal'),
-        b6: document.getElementById('open-style-modal-btn'),
-        b7: document.getElementById('close-style-modal-btn'),
-        b8: document.getElementById('open-guide-modal-btn'),
-        b9: document.getElementById('close-guide-modal-btn'),
-        b10: document.getElementById('reopen-window-btn'),
-        i4: document.getElementById('highlight-input'),
-        i5: document.getElementById('highlight-color'),
-        c1: document.getElementById('highlight-bold'),
-        c2: document.getElementById('highlight-italic'),
-        c3: document.getElementById('highlight-underline'),
-        b11: document.getElementById('apply-highlight-btn'),
-        b12: document.getElementById('remove-highlight-btn'),
-        b13: document.getElementById('reset-btn')
+    // DOM 요소 캐싱
+    const DOM = {
+        dbLoader: document.getElementById('db-loader'),
+        dbFileInput: document.getElementById('db-file-input'),
+        dbStatus: document.getElementById('db-status'),
+        loadingSpinner: document.getElementById('loading-spinner'),
+        manualLoadContainer: document.getElementById('manual-load-container'),
+        mainContent: document.getElementById('main-content'),
+        openWindowBtn: document.getElementById('open-window-btn'),
+        displayBtn: document.getElementById('display-btn'),
+        verseInput: document.getElementById('verse-input'),
+        keywordInput: document.getElementById('keyword-input'),
+        keywordSearchBtn: document.getElementById('keyword-search-btn'),
+        customTextInput: document.getElementById('custom-text-input'),
+        customTextBtn: document.getElementById('custom-text-btn'),
+        initialView: document.getElementById('initial-view'),
+        controlPanel: document.getElementById('control-panel'),
+        resultDisplay: document.getElementById('result-display'),
+        selectionControls: document.getElementById('selection-controls'),
+        displayCheckedBtn: document.getElementById('display-checked-btn'),
+        fontSizeSlider: document.getElementById('font-size-slider'),
+        fontSizeValue: document.getElementById('font-size-value'),
+        lineHeightSlider: document.getElementById('line-height-slider'),
+        lineHeightValue: document.getElementById('line-height-value'),
+        styleModal: document.getElementById('style-modal'),
+        guideModal: document.getElementById('guide-modal'),
+        openStyleModalBtn: document.getElementById('open-style-modal-btn'),
+        closeStyleModalBtn: document.getElementById('close-style-modal-btn'),
+        openGuideModalBtn: document.getElementById('open-guide-modal-btn'),
+        closeGuideModalBtn: document.getElementById('close-guide-modal-btn'),
+        reopenWindowBtn: document.getElementById('reopen-window-btn'),
+        highlightInput: document.getElementById('highlight-input'),
+        highlightColor: document.getElementById('highlight-color'),
+        highlightBold: document.getElementById('highlight-bold'),
+        highlightItalic: document.getElementById('highlight-italic'),
+        highlightUnderline: document.getElementById('highlight-underline'),
+        applyHighlightBtn: document.getElementById('apply-highlight-btn'),
+        removeHighlightBtn: document.getElementById('remove-highlight-btn'),
+        resetBtn: document.getElementById('reset-btn')
     };
 
-    let _pw=null,_db=null,_bnM={},_bsM={},_cD=null,_cV=[],_iMV=false;
-    let _sc = { t:'clause',b:'book',c:'chapter',v:'verse',x:'text' };
+    // 전역 상태 변수
+    let projectorWindow = null;
+    let dbInstance = null;
+    let bookNameMap = {};
+    let bookSearchMap = {};
+    let currentData = null;
+    let checkedVerses = [];
+    let isMultiVerseMode = false;
 
-    async function _f1(b){
-        try{
-            const _s=await initSqlJs({locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${f}`});
-            _db=new _s.Database(new Uint8Array(b));
-            const _tr=_db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'");
-            if(_tr.length>0){
-                let _vt=_tr[0].values.map(v=>v[0]).filter(n=>!['info','metadata','details','about','crossreference','notes','dictionary','strongs'].includes(n.toLowerCase()));
-                let _tt=null;
-                for(const c of ['bible','verses','clause','scripture','t_bible','book']){
-                    const f=_vt.find(t=>t.toLowerCase()===c);
-                    if(f){_tt=f;break;}
+    // ✨ 핵심 기능: 스마트 DB 스키마(구조) 감지 변수
+    let dbSchema = { table: 'clause', book: 'book', chapter: 'chapter', verse: 'verse', text: 'text' };
+
+    // DB 초기화 함수
+    async function initDatabase(arrayBuffer) {
+        try {
+            const SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+            dbInstance = new SQL.Database(new Uint8Array(arrayBuffer));
+
+            // ✨ 테이블명 동적 감지 로직 강화
+            const tablesRes = dbInstance.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'android_%'");
+            if (tablesRes.length > 0) {
+                // 불필요한 메타데이터 테이블 제외
+                let validTables = tablesRes[0].values.map(v => v[0]).filter(n => !['info', 'metadata', 'details', 'about', 'crossreference', 'notes', 'dictionary', 'strongs'].includes(n.toLowerCase()));
+                
+                let targetTable = null;
+                // 성경 데이터가 있을 법한 주요 테이블명 찾기
+                for (const candidate of ['bible', 'verses', 'clause', 'scripture', 't_bible', 'book']) {
+                    const found = validTables.find(t => t.toLowerCase() === candidate);
+                    if (found) {
+                        targetTable = found;
+                        break;
+                    }
                 }
-                if(!_tt&&_vt.length>0)_tt=_vt[0];
-                if(_tt){
-                    _sc.t=_tt;
-                    const _cr=_db.exec(`PRAGMA table_info("${_tt}")`);
-                    if(_cr.length>0){
-                        const _cs=_cr[0].values.map(v=>v[1]), _lc=_cs.map(c=>c.toLowerCase());
-                        const _fc=cd=>{for(let c of cd){const i=_lc.indexOf(c);if(i!==-1)return _cs[i];}return null;};
-                        _sc.b=_fc(['book','book_id','b','book_number','bookid'])||_cs[0];
-                        _sc.c=_fc(['chapter','c','chapter_id','chapternumber'])||_cs[1];
-                        _sc.v=_fc(['verse','v','verse_id','versenumber'])||_cs[2];
-                        _sc.x=_fc(['text','scripture','content','t','versetext','verse_text','bibletext','body'])||_cs[_cs.length-1];
+                
+                // 찾지 못했다면 제외하고 남은 첫 번째 테이블을 사용
+                if (!targetTable && validTables.length > 0) {
+                    targetTable = validTables[0];
+                }
+
+                if (targetTable) {
+                    dbSchema.table = targetTable;
+                    
+                    // ✨ 컬럼명 동적 감지 로직 (PRAGMA 사용)
+                    const colRes = dbInstance.exec(`PRAGMA table_info("${targetTable}")`);
+                    if (colRes.length > 0) {
+                        const cols = colRes[0].values.map(v => v[1]);
+                        const lowerCols = cols.map(c => c.toLowerCase());
+                        
+                        const findCol = (candidates) => {
+                            for (let c of candidates) {
+                                const idx = lowerCols.indexOf(c);
+                                if (idx !== -1) return cols[idx];
+                            }
+                            return null;
+                        };
+
+                        // 실제 데이터베이스 컬럼 이름을 찾아 매핑합니다.
+                        // 만약 예상된 이름 목록에서 찾지 못하면 가장 확실한 순서(첫번째, 두번째..)나 가장 마지막 컬럼을 대신 선택하여 오류를 막습니다.
+                        dbSchema.book = findCol(['book', 'book_id', 'b', 'book_number', 'bookid']) || cols[0];
+                        dbSchema.chapter = findCol(['chapter', 'c', 'chapter_id', 'chapternumber']) || cols[1];
+                        dbSchema.verse = findCol(['verse', 'v', 'verse_id', 'versenumber']) || cols[2];
+                        dbSchema.text = findCol(['text', 'scripture', 'content', 't', 'versetext', 'verse_text', 'bibletext', 'body']) || cols[cols.length - 1]; 
                     }
                 }
             }
-            _f3();
-            _d.l1.classList.add('hidden');
-            _d.l6.classList.remove('hidden');
-            _d.l6.classList.add('animate-fade-in');
-        }catch(e){throw new Error(e.message);}
-    }
 
-    async function _f2(){
-        try{
-            const r=await fetch('MGKOR.db');
-            if(!r.ok)throw new Error();
-            await _f1(await r.arrayBuffer());
-        }catch(e){
-            _d.l4.classList.add('hidden');
-            _d.l5.classList.remove('hidden');
+            initBookMappings();
+            DOM.dbLoader.classList.add('hidden');
+            DOM.mainContent.classList.remove('hidden');
+            DOM.mainContent.classList.add('animate-fade-in');
+        } catch (error) {
+            throw new Error("데이터베이스 초기화 중 오류: " + error.message);
         }
     }
 
-    window.addEventListener('DOMContentLoaded',_f2);
+    // 기본 DB 불러오기
+    async function loadDefaultDB() {
+        try {
+            const targetFile = 'MGKOR.db'; 
+            const response = await fetch(targetFile);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            await initDatabase(await response.arrayBuffer());
+        } catch (error) {
+            console.warn("DB 로드 실패:", error);
+            DOM.loadingSpinner.classList.add('hidden');
+            DOM.manualLoadContainer.classList.remove('hidden');
+        }
+    }
 
-    _d.l2.addEventListener('change',async e=>{
-        const f=e.target.files[0];
-        if(!f)return;
-        try{
-            _d.l5.classList.add('hidden');
-            _d.l4.classList.remove('hidden');
-            _d.l3.textContent="성경 데이터 분석 중...";
-            await _f1(await f.arrayBuffer());
-        }catch(er){
-            alert(`오류: ${er.message}`);
-            _d.l4.classList.add('hidden');
-            _d.l5.classList.remove('hidden');
+    window.addEventListener('DOMContentLoaded', loadDefaultDB);
+
+    // 수동 파일 선택
+    DOM.dbFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+            DOM.manualLoadContainer.classList.add('hidden');
+            DOM.loadingSpinner.classList.remove('hidden');
+            DOM.dbStatus.textContent = "성경 데이터 분석 중...";
+            await initDatabase(await file.arrayBuffer());
+        } catch (error) {
+            alert(`오류: ${error.message}`);
+            DOM.loadingSpinner.classList.add('hidden');
+            DOM.manualLoadContainer.classList.remove('hidden');
         }
     });
 
-    function _f3(){
-        const _bks="1,창세기,창,Génesis\n2,출애굽기,출,Éxodo\n3,레위기,레,Levítico\n4,민수기,민,Números\n5,신명기,신,Deuteronomio\n6,여호수아,수,Josué\n7,사사기,삿,Jueces\n8,룻기,룻,Rut\n9,사무엘상,삼상,1 Samuel\n10,사무엘하,삼하,2 Samuel\n11,열왕기상,왕상,1 Reyes\n12,열왕기하,왕하,2 Reyes\n13,역대상,대상,1 Crónicas\n14,역대하,대하,2 Crónicas\n15,에스라,스,Esdras\n16,느헤미야,느,Nehemías\n17,에스더,에,Ester\n18,욥기,욥,Job\n19,시편,시,Salmos\n20,잠언,잠,Proverbios\n21,전도서,전,Eclesiastés\n22,아가,아,Cantares\n23,이사야,사,Isaías\n24,예레미야,렘,Jeremías\n25,예레미야애가,애,Lamentaciones\n26,에스겔,겔,Ezequiel\n27,다니엘,단,Daniel\n28,호세아,호,Oseas\n29,요엘,욜,Joel\n30,아모스,암,Amós\n31,오바댜,옵,Abdías\n32,요나,욘,Jonás\n33,미가,미,Miqueas\n34,나훔,나,Nahúm\n35,하박국,합,Habacuc\n36,스바냐,습,Sofonías\n37,학개,학,Hageo\n38,스가랴,슥,Zacarías\n39,말라기,말,Malaquías\n40,마태복음,마,Mateo\n41,마가복음,막,Marcos\n42,누가복음,눅,Lucas\n43,요한복음,요,Juan\n44,사도행전,행,Hechos\n45,로마서,롬,Romanos\n46,고린도전서,고전,1 Corintios\n47,고린도후서,고후,2 Corintios\n48,갈라디아서,갈,Gálatas\n49,에베소서,엡,Efesios\n50,빌립보서,빌,Filipenses\n51,골로새서,골,Colosenses\n52,데살로니가전서,살전,1 Tesalonicenses\n53,데살로니가후서,살후,2 Tesalonicenses\n54,디모데전서,딤전,1 Timoteo\n55,디모데후서,딤후,2 Timoteo\n56,디도서,딛,Tito\n57,빌레몬서,몬,Filemón\n58,히브리서,히,Hebreos\n59,야고보서,약,Santiago\n60,베드로전서,벧전,1 Pedro\n61,베드로후서,벧후,2 Pedro\n62,요한1서,요일,1 Juan\n63,요한2서,요이,2 Juan\n64,요한3서,요삼,3 Juan\n65,유다서,유,Judas\n66,요한계시록,계,Apocalipsis";
-        _bks.split('\n').forEach(r=>{
-            const [i,f,s,sp]=r.split(',');
-            if(i&&f&&s&&sp){
-                const id=parseInt(i,10);
-                _bnM[id]={n:sp.trim(),a:s.trim(),kor:f.trim()};
-                _bsM[f.trim().toLowerCase()]=id;
-                _bsM[s.trim().toLowerCase()]=id;
+    // 66권 성경 매핑 초기화 (스페인어 표출 적용)
+    function initBookMappings() {
+        // ID, 한국어명, 한국어약어, 스페인어명
+        const books = `1,창세기,창,Génesis\n2,출애굽기,출,Éxodo\n3,레위기,레,Levítico\n4,민수기,민,Números\n5,신명기,신,Deuteronomio\n6,여호수아,수,Josué\n7,사사기,삿,Jueces\n8,룻기,룻,Rut\n9,사무엘상,삼상,1 Samuel\n10,사무엘하,삼하,2 Samuel\n11,열왕기상,왕상,1 Reyes\n12,열왕기하,왕하,2 Reyes\n13,역대상,대상,1 Crónicas\n14,역대하,대하,2 Crónicas\n15,에스라,스,Esdras\n16,느헤미야,느,Nehemías\n17,에스더,에,Ester\n18,욥기,욥,Job\n19,시편,시,Salmos\n20,잠언,잠,Proverbios\n21,전도서,전,Eclesiastés\n22,아가,아,Cantares\n23,이사야,사,Isaías\n24,예레미야,렘,Jeremías\n25,예레미야애가,애,Lamentaciones\n26,에스겔,겔,Ezequiel\n27,다니엘,단,Daniel\n28,호세아,호,Oseas\n29,요엘,욜,Joel\n30,아모스,암,Amós\n31,오바댜,옵,Abdías\n32,요나,욘,Jonás\n33,미가,미,Miqueas\n34,나훔,나,Nahúm\n35,하박국,합,Habacuc\n36,스바냐,습,Sofonías\n37,학개,학,Hageo\n38,스가랴,슥,Zacarías\n39,말라기,말,Malaquías\n40,마태복음,마,Mateo\n41,마가복음,막,Marcos\n42,누가복음,눅,Lucas\n43,요한복음,요,Juan\n44,사도행전,행,Hechos\n45,로마서,롬,Romanos\n46,고린도전서,고전,1 Corintios\n47,고린도후서,고후,2 Corintios\n48,갈라디아서,갈,Gálatas\n49,에베소서,엡,Efesios\n50,빌립보서,빌,Filipenses\n51,골로새서,골,Colosenses\n52,데살로니가전서,살전,1 Tesalonicenses\n53,데살로니가후서,살후,2 Tesalonicenses\n54,디모데전서,딤전,1 Timoteo\n55,디모데후서,딤후,2 Timoteo\n56,디도서,딛,Tito\n57,빌레몬서,몬,Filemón\n58,히브리서,히,Hebreos\n59,야고보서,약,Santiago\n60,베드로전서,벧전,1 Pedro\n61,베드로후서,벧후,2 Pedro\n62,요한1서,요일,1 Juan\n63,요한2서,요이,2 Juan\n64,요한3서,요삼,3 Juan\n65,유다서,유,Judas\n66,요한계시록,계,Apocalipsis`;
+        
+        books.split('\n').forEach(row => {
+            const [idStr, fullName, shortName, spanishName] = row.split(',');
+            if (idStr && fullName && shortName && spanishName) {
+                const id = parseInt(idStr, 10);
+                // 화면 표출 데이터(n)에 스페인어 명칭 할당
+                bookNameMap[id] = { n: spanishName.trim(), a: shortName.trim(), kor: fullName.trim() };
+                
+                // 검색은 사역자님의 편의를 위해 한국어로 가능하도록 기존 매핑 유지
+                bookSearchMap[fullName.trim().toLowerCase()] = id;
+                bookSearchMap[shortName.trim().toLowerCase()] = id;
             }
         });
     }
 
-    function _f4(q){
-        q=q.trim().toLowerCase();
-        const m=q.match(/^([가-힣\d]+)[\s\.]*(\d+)[\s]*[:\.]?[\s]*(\d+)(?:[\s-]*(\d+))?$/);
-        if(!m)return null;
-        const b=m[1],c=parseInt(m[2],10),s=parseInt(m[3],10),e=m[4]?parseInt(m[4],10):s;
-        const id=_bsM[b];
-        if(!id||isNaN(c)||isNaN(s))return null;
-        return {id,n:_bnM[id].n,c,s,e};
+    // 구절 텍스트 파싱 로직
+    function parseVerseQuery(query) {
+        query = query.trim().toLowerCase();
+        const match = query.match(/^([가-힣\d]+)[\s\.]*(\d+)[\s]*[:\.]?[\s]*(\d+)(?:[\s-]*(\d+))?$/);
+        if (!match) return null;
+
+        const bookStr = match[1], ch = parseInt(match[2], 10), startV = parseInt(match[3], 10), endV = match[4] ? parseInt(match[4], 10) : startV;
+        const bookId = bookSearchMap[bookStr];
+
+        if (!bookId || isNaN(ch) || isNaN(startV)) return null;
+        return { id: bookId, n: bookNameMap[bookId].n, c: ch, s: startV, e: endV };
     }
 
-    function _f5(p){
-        if(!_db||!p)return null;
-        try{
-            const q=`SELECT "${_sc.v}" as verse, "${_sc.x}" as text FROM "${_sc.t}" WHERE "${_sc.b}" = :b AND "${_sc.c}" = :c AND "${_sc.v}" >= :s AND "${_sc.v}" <= :e ORDER BY "${_sc.v}"`;
-            const s=_db.prepare(q);
-            s.bind({':b':p.id,':c':p.c,':s':p.s,':e':p.e});
-            const r=[];
-            while(s.step())r.push({book:p.id,chapter:p.c,...s.getAsObject()});
-            s.free();
-            if(!r.length)return null;
-            return {v:r,a:p.s===p.e?`${p.n} ${p.c}:${p.s}`:`${p.n} ${p.c}:${p.s}-${p.e}`};
-        }catch(e){return null;}
+    // 말씀 검색 (스마트 스키마 적용 & 쿼리 따옴표 처리)
+    function fetchVerses(parsed) {
+        if (!dbInstance || !parsed) return null;
+        try {
+            // DB 스키마 컬럼명에 특수문자나 예약어가 있어도 오류가 나지 않도록 쌍따옴표("")로 감쌌습니다.
+            const query = `SELECT "${dbSchema.verse}" as verse, "${dbSchema.text}" as text FROM "${dbSchema.table}" WHERE "${dbSchema.book}" = :b AND "${dbSchema.chapter}" = :c AND "${dbSchema.verse}" >= :s AND "${dbSchema.verse}" <= :e ORDER BY "${dbSchema.verse}"`;
+            const stmt = dbInstance.prepare(query);
+            stmt.bind({ ':b': parsed.id, ':c': parsed.c, ':s': parsed.s, ':e': parsed.e });
+            
+            const results = [];
+            while (stmt.step()) {
+                results.push({ book: parsed.id, chapter: parsed.c, ...stmt.getAsObject() });
+            }
+            stmt.free();
+            if (!results.length) return null;
+            return { v: results, a: parsed.s === parsed.e ? `${parsed.n} ${parsed.c}:${parsed.s}` : `${parsed.n} ${parsed.c}:${parsed.s}-${parsed.e}` };
+        } catch (e) {
+            console.error("fetchVerses 오류:", e);
+            return null;
+        }
     }
 
-    function _f6(k){
-        if(!_db||!k)return [];
-        const w=k.trim().split(' ').filter(x=>x);
-        if(!w.length)return [];
-        const c=w.map(()=>`"${_sc.x}" LIKE ?`).join(' AND ');
-        const p=w.map(x=>`%${x}%`);
-        try{
-            const q=`SELECT "${_sc.b}" as book, "${_sc.c}" as chapter, "${_sc.v}" as verse, "${_sc.x}" as text FROM "${_sc.t}" WHERE ${c} ORDER BY "${_sc.b}", "${_sc.c}", "${_sc.v}" LIMIT 100`;
-            const s=_db.prepare(q);
-            s.bind(p);
-            const r=[];
-            while(s.step())r.push(s.getAsObject());
-            s.free();
-            return r;
-        }catch(e){
-            _d.v3.innerHTML='<p class="text-center text-red-500">오류가 발생했습니다.</p>';
+    // 단어 검색 (스마트 스키마 적용 & 쿼리 따옴표 처리)
+    function searchKeyword(keyword) {
+        if (!dbInstance || !keyword) return [];
+        const words = keyword.trim().split(' ').filter(x => x);
+        if (!words.length) return [];
+
+        const conditions = words.map(() => `"${dbSchema.text}" LIKE ?`).join(' AND ');
+        const params = words.map(x => `%${x}%`);
+        
+        try {
+            const query = `SELECT "${dbSchema.book}" as book, "${dbSchema.chapter}" as chapter, "${dbSchema.verse}" as verse, "${dbSchema.text}" as text FROM "${dbSchema.table}" WHERE ${conditions} ORDER BY "${dbSchema.book}", "${dbSchema.chapter}", "${dbSchema.verse}" LIMIT 100`;
+            const stmt = dbInstance.prepare(query);
+            stmt.bind(params);
+            
+            const results = [];
+            while (stmt.step()) results.push(stmt.getAsObject());
+            stmt.free();
+            return results;
+        } catch (e) {
+            DOM.resultDisplay.innerHTML = '<p class="text-center text-red-500">오류가 발생했습니다.</p>';
             return [];
         }
     }
 
-    function _f7(){
-        const w=800,h=600,l=(screen.width/2)-(w/2)+screen.width,t=(screen.height/2)-(h/2);
-        let iu='icon.ico';
-        try{if(!window.location.href.startsWith('blob:')&&!window.location.href.startsWith('data:'))iu=new URL('icon.ico',window.location.href).href;}catch(e){}
-        let fi="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2360a5fa%22 stroke-width=%221.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20%22/%3E%3Cpath d=%22M12 6v6%22/%3E%3Cpath d=%22M9 9h6%22/%3E%3C/svg%3E";
-        _pw=window.open('','BibleProjectorWindow',`width=${w},height=${h},top=${t},left=${l}`);
-        if(_pw){
-            _pw.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>말씀 프로젝터</title><script src="https://cdn.tailwindcss.com"><\/script><link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600&display=swap" rel="stylesheet"><style>body{font-family:'Noto Serif KR',serif;background-color:#000;margin:0;padding:0;}#verse-container{transition:opacity 0.3s ease-in-out;}::-webkit-scrollbar{width:10px;}::-webkit-scrollbar-track{background:#1f2937;}::-webkit-scrollbar-thumb{background:#4b5563;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#6b7280;}</style><script>${_sec}<\/script></head><body class="text-white h-screen overflow-y-auto p-12 flex flex-col justify-center"><div id="verse-container" class="w-full text-left"><div id="verse-text"><div class="flex items-center justify-center h-[calc(100vh-6rem)] w-full"><img src="${iu}" alt="로고" style="max-width: 400px; max-height: 400px; object-fit: contain; filter: drop-shadow(0 0 20px rgba(255,255,255,0.15));" onerror="this.onerror=null;this.src='${fi}'"></div></div><div id="verse-address"></div></div></body></html>`);
-            _pw.document.close();
-            _d.v1.classList.add('hidden');
-            _d.v2.classList.remove('hidden');
-            _d.v2.classList.add('animate-fade-in');
-            _f12();
-            if(_cD)setTimeout(_f14,50);
-        }else alert('팝업 창이 차단되었습니다. 브라우저 설정에서 팝업을 허용해주세요.');
+    // 프로젝터 창 열기
+    function openProjectorWindow() {
+        const w = 800, h = 600, left = (screen.width / 2) - (w / 2) + screen.width, top = (screen.height / 2) - (h / 2);
+        let iconUrl = 'icon.ico';
+        try { if (!window.location.href.startsWith('blob:') && !window.location.href.startsWith('data:')) iconUrl = new URL('icon.ico', window.location.href).href; } catch(e){}
+        let fallbackIcon = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2360a5fa%22 stroke-width=%221.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20%22/%3E%3Cpath d=%22M12 6v6%22/%3E%3Cpath d=%22M9 9h6%22/%3E%3C/svg%3E";
+        
+        projectorWindow = window.open('', 'BibleProjectorWindow', `width=${w},height=${h},top=${top},left=${left}`);
+        if (projectorWindow) {
+            projectorWindow.document.write(`
+                <!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>말씀 프로젝터</title>
+                <script src="https://cdn.tailwindcss.com"><\/script>
+                <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600&display=swap" rel="stylesheet">
+                <style>
+                    body{font-family:'Noto Serif KR',serif;background-color:#000;margin:0;padding:0;}
+                    #verse-container{transition:opacity 0.3s ease-in-out;}
+                    ::-webkit-scrollbar{width:10px;}::-webkit-scrollbar-track{background:#1f2937;}
+                    ::-webkit-scrollbar-thumb{background:#4b5563;border-radius:5px;}::-webkit-scrollbar-thumb:hover{background:#6b7280;}
+                </style>
+                </head><body class="text-white h-screen overflow-y-auto p-12 flex flex-col justify-center">
+                <div id="verse-container" class="w-full text-left">
+                    <div id="verse-text">
+                        <div class="flex items-center justify-center h-[calc(100vh-6rem)] w-full">
+                            <img src="${iconUrl}" alt="로고" style="max-width: 400px; max-height: 400px; object-fit: contain; filter: drop-shadow(0 0 20px rgba(255,255,255,0.15));" onerror="this.onerror=null;this.src='${fallbackIcon}'">
+                        </div>
+                    </div>
+                    <div id="verse-address"></div>
+                </div></body></html>
+            `);
+            projectorWindow.document.close();
+            DOM.initialView.classList.add('hidden');
+            DOM.controlPanel.classList.remove('hidden');
+            DOM.controlPanel.classList.add('animate-fade-in');
+            applyStylesToProjector();
+            if (currentData) setTimeout(refreshDisplay, 50);
+        } else {
+            alert('팝업 창이 차단되었습니다. 브라우저 설정에서 팝업을 허용해주세요.');
+        }
     }
 
-    function _f8(){
-        _f16();
-        _d.v3.innerHTML='';
-        const i=_d.i1.value;
-        if(!i)return;
-        const p=_f4(i);
-        if(!p){_d.v3.innerHTML='<p class="text-center text-red-500 py-2">입력 형식이 올바르지 않습니다.</p>';return;}
-        const r=_f5(p);
-        if(!r||!r.v.length){_d.v3.innerHTML='<p class="text-center text-red-500 py-2">해당 말씀을 찾을 수 없습니다.</p>';return;}
-        _cD=r; _iMV=false; _f14();
+    // 화면 송출 및 UI 이벤트 로직
+    function handleVerseSearch() {
+        clearCheckboxes();
+        DOM.resultDisplay.innerHTML = '';
+        const inputStr = DOM.verseInput.value;
+        if (!inputStr) return;
+        
+        const parsed = parseVerseQuery(inputStr);
+        if (!parsed) { DOM.resultDisplay.innerHTML = '<p class="text-center text-red-500 py-2">입력 형식이 올바르지 않습니다.</p>'; return; }
+        
+        const res = fetchVerses(parsed);
+        if (!res || !res.v.length) { DOM.resultDisplay.innerHTML = '<p class="text-center text-red-500 py-2">해당 말씀을 찾을 수 없습니다.</p>'; return; }
+        
+        currentData = res;
+        isMultiVerseMode = false;
+        refreshDisplay();
     }
 
-    function _f9(){
-        _f16(); _cD=null;
-        const k=_d.i2.value;
-        if(!k)return;
-        const r=_f6(k);
-        _d.v3.innerHTML='';
-        if(!r.length){_d.v3.innerHTML='<p class="text-center text-slate-500 py-2">검색 결과가 없습니다.</p>';return;}
-        const w=k.trim().split(' ').filter(x=>x);
-        const h=document.createElement('p');
-        h.className="text-sm text-slate-600 mb-3 border-b border-sky-100 pb-2";
-        h.innerHTML=`'<strong>${k}</strong>' 검색 결과: <strong>${r.length}</strong>건`;
-        _d.v3.appendChild(h);
-        r.forEach(v=>{
-            const i=document.createElement('div');
-            i.className='search-result-item p-3 border-b border-sky-100/50 flex items-start rounded-lg mb-1';
-            let t=v.text;
-            w.forEach(x=>{t=t.replace(new RegExp(x,'g'),`<strong class="text-blue-600 font-extrabold bg-blue-50 px-1 rounded">${x}</strong>`);});
-            const a=`${_bnM[v.book].n} ${v.chapter}:${v.verse}`;
-            const dt={book:v.book,chapter:v.chapter,verse:v.verse,text:v.text};
-            i.innerHTML=`<div class="pt-1"><input type="checkbox" class="h-5 w-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500 mr-3 shrink-0 cursor-pointer shadow-sm" data-verse='${JSON.stringify(dt)}'></div><div class="flex-1 cursor-pointer"><p class="font-bold text-sm text-sky-800 mb-1">${a}</p><p class="text-sm text-slate-700 leading-relaxed">${t}</p></div>`;
-            i.querySelector('.flex-1').addEventListener('click',()=>{
-                _f16(); _cD={v:[{...dt}],a}; _iMV=false; _f14();
+    function handleKeywordSearch() {
+        clearCheckboxes();
+        currentData = null;
+        const keyword = DOM.keywordInput.value;
+        if (!keyword) return;
+
+        const results = searchKeyword(keyword);
+        DOM.resultDisplay.innerHTML = '';
+        
+        if (!results.length) {
+            DOM.resultDisplay.innerHTML = '<p class="text-center text-slate-500 py-2">검색 결과가 없습니다.</p>';
+            return;
+        }
+
+        const words = keyword.trim().split(' ').filter(x => x);
+        const header = document.createElement('p');
+        header.className = "text-sm text-slate-600 mb-3 border-b border-sky-100 pb-2";
+        header.innerHTML = `'<strong>${keyword}</strong>' 검색 결과: <strong>${results.length}</strong>건`;
+        DOM.resultDisplay.appendChild(header);
+
+        results.forEach(v => {
+            const item = document.createElement('div');
+            item.className = 'search-result-item p-3 border-b border-sky-100/50 flex items-start rounded-lg mb-1';
+            let formattedText = v.text;
+            words.forEach(w => {
+                formattedText = formattedText.replace(new RegExp(w, 'g'), `<strong class="text-blue-600 font-extrabold bg-blue-50 px-1 rounded">${w}</strong>`);
             });
-            i.querySelector('input').addEventListener('change',e=>{
-                const jd=JSON.parse(e.target.dataset.verse);
-                if(e.target.checked)_cV.push(jd);
-                else _cV=_cV.filter(x=>!(x.book===jd.book&&x.chapter===jd.chapter&&x.verse===jd.verse));
-                _f17();
+            const address = `${bookNameMap[v.book].n} ${v.chapter}:${v.verse}`;
+            const verseData = { book: v.book, chapter: v.chapter, verse: v.verse, text: v.text };
+            
+            item.innerHTML = `
+                <div class="pt-1">
+                    <input type="checkbox" class="h-5 w-5 text-purple-600 border-gray-300 rounded focus:ring-purple-500 mr-3 shrink-0 cursor-pointer shadow-sm" data-verse='${JSON.stringify(verseData)}'>
+                </div>
+                <div class="flex-1 cursor-pointer">
+                    <p class="font-bold text-sm text-sky-800 mb-1">${address}</p>
+                    <p class="text-sm text-slate-700 leading-relaxed">${formattedText}</p>
+                </div>
+            `;
+            
+            item.querySelector('.flex-1').addEventListener('click', () => {
+                clearCheckboxes();
+                currentData = { v: [{ ...verseData }], a: address };
+                isMultiVerseMode = false;
+                refreshDisplay();
             });
-            _d.v3.appendChild(i);
+            
+            item.querySelector('input').addEventListener('change', e => {
+                const data = JSON.parse(e.target.dataset.verse);
+                if (e.target.checked) checkedVerses.push(data);
+                else checkedVerses = checkedVerses.filter(x => !(x.book === data.book && x.chapter === data.chapter && x.verse === data.verse));
+                toggleMultiVerseBtn();
+            });
+            DOM.resultDisplay.appendChild(item);
         });
     }
 
-    function _f10(va, ho, im){
-        return va.map(x=>{
-            let t=x.text;
-            if(ho&&ho.w)t=t.replace(new RegExp(ho.w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'g'),m=>`<span style="${ho.s}">${m}</span>`);
-            if(im)return `<div class="mb-6"><p class="flex items-baseline"><span class="verse-number text-sky-400 font-normal mr-4 opacity-80">${x.verse}</span><span class="verse-text-content leading-relaxed">${t}</span></p><p class="multi-verse-full-address text-right text-sm text-amber-400/80 mt-2 pr-2 opacity-90">${_bnM[x.book].n} ${x.chapter}:${x.verse}</p></div>`;
+    function formatVerseHTML(versesArr, highlightOpt, isMulti) {
+        return versesArr.map(x => {
+            let t = x.text;
+            if (highlightOpt && highlightOpt.word) {
+                t = t.replace(new RegExp(highlightOpt.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), match => `<span style="${highlightOpt.style}">${match}</span>`);
+            }
+            if (isMulti) {
+                return `<div class="mb-6">
+                            <p class="flex items-baseline"><span class="verse-number text-sky-400 font-normal mr-4 opacity-80">${x.verse}</span><span class="verse-text-content leading-relaxed">${t}</span></p>
+                            <p class="multi-verse-full-address text-right text-sm text-amber-400/80 mt-2 pr-2 opacity-90">${bookNameMap[x.book].n} ${x.chapter}:${x.verse}</p>
+                        </div>`;
+            }
             return `<p class="flex items-baseline"><span class="verse-number text-sky-400 font-normal mr-4 opacity-80">${x.verse}</span><span class="verse-text-content leading-relaxed">${t}</span></p>`;
         }).join('');
     }
 
-    function _f11(ch, at, ic=false){
-        const ah=at?`<h3 class="text-lg mt-5 font-bold text-blue-700 text-right">${at}</h3>`:'';
-        if(ic)_d.v3.innerHTML=`<div class="text-slate-800 text-center py-6 font-bold text-lg">${ch}</div>`;
-        else _d.v3.innerHTML=`<div class="text-slate-800">${ch}</div>${ah}`;
-        if(!_pw||_pw.closed)return;
-        const pt=_pw.document.getElementById('verse-text'), pa=_pw.document.getElementById('verse-address'), pc=_pw.document.getElementById('verse-container');
-        if(pc){
-            pc.style.opacity=0;
-            setTimeout(()=>{
-                if(ic){
-                    pt.innerHTML=`<div style="text-align: center; word-break: keep-all;">${ch}</div>`;
-                    pt.parentElement.parentElement.classList.remove('justify-start');
-                    pt.parentElement.parentElement.classList.add('justify-center');
-                    pa.innerHTML='';
-                }else{
-                    pt.innerHTML=ch;
-                    pt.parentElement.parentElement.classList.remove('justify-center');
-                    pt.parentElement.parentElement.classList.add('justify-start');
-                    pa.innerHTML=at?`<h2 class="text-3xl md:text-4xl mt-12 text-amber-300 text-right font-bold opacity-90">${at}</h2>`:'';
+    function renderToProjector(contentHtml, addressText, isCenterAlign = false) {
+        const addrHtml = addressText ? `<h3 class="text-lg mt-5 font-bold text-blue-700 text-right">${addressText}</h3>` : '';
+        if (isCenterAlign) {
+            DOM.resultDisplay.innerHTML = `<div class="text-slate-800 text-center py-6 font-bold text-lg">${contentHtml}</div>`;
+        } else {
+            DOM.resultDisplay.innerHTML = `<div class="text-slate-800">${contentHtml}</div>${addrHtml}`;
+        }
+
+        if (!projectorWindow || projectorWindow.closed) return;
+        
+        const pText = projectorWindow.document.getElementById('verse-text');
+        const pAddress = projectorWindow.document.getElementById('verse-address');
+        const pContainer = projectorWindow.document.getElementById('verse-container');
+        
+        if (pContainer) {
+            pContainer.style.opacity = 0;
+            setTimeout(() => {
+                if (isCenterAlign) {
+                    pText.innerHTML = `<div style="text-align: center; word-break: keep-all;">${contentHtml}</div>`;
+                    pText.parentElement.parentElement.classList.remove('justify-start');
+                    pText.parentElement.parentElement.classList.add('justify-center');
+                    pAddress.innerHTML = '';
+                } else {
+                    pText.innerHTML = contentHtml;
+                    pText.parentElement.parentElement.classList.remove('justify-center');
+                    pText.parentElement.parentElement.classList.add('justify-start');
+                    pAddress.innerHTML = addressText ? `<h2 class="text-3xl md:text-4xl mt-12 text-amber-300 text-right font-bold opacity-90">${addressText}</h2>` : '';
                 }
-                _f12();
-                pc.style.opacity=1;
-            },300);
+                applyStylesToProjector();
+                pContainer.style.opacity = 1;
+            }, 300);
         }
-        _pw.focus();
+        projectorWindow.focus();
     }
 
-    function _f12(){
-        const sz=_d.s1.value, ht=_d.s3.value;
-        _d.s2.textContent=sz; _d.s4.textContent=ht;
-        if(_pw&&!_pw.closed){
-            const pt=_pw.document.getElementById('verse-text');
-            if(pt){
-                pt.style.fontSize=`${sz}px`; pt.style.lineHeight=ht;
-                pt.querySelectorAll('.verse-number').forEach(x=>x.style.fontSize=`${Math.max(14,sz*0.45)}px`);
-                pt.querySelectorAll('.multi-verse-full-address').forEach(x=>x.style.fontSize=`${Math.max(12,sz*0.35)}px`);
+    function applyStylesToProjector() {
+        const size = DOM.fontSizeSlider.value;
+        const height = DOM.lineHeightSlider.value;
+        DOM.fontSizeValue.textContent = size;
+        DOM.lineHeightValue.textContent = height;
+        
+        if (projectorWindow && !projectorWindow.closed) {
+            const pText = projectorWindow.document.getElementById('verse-text');
+            if (pText) {
+                pText.style.fontSize = `${size}px`;
+                pText.style.lineHeight = height;
+                pText.querySelectorAll('.verse-number').forEach(x => x.style.fontSize = `${Math.max(14, size * 0.45)}px`);
+                pText.querySelectorAll('.multi-verse-full-address').forEach(x => x.style.fontSize = `${Math.max(12, size * 0.35)}px`);
             }
         }
     }
 
-    function _f13(){
-        const ms=document.querySelectorAll('.modal');
-        const o=el=>{el.classList.remove('hidden');el.classList.add('flex');};
-        const c=el=>{el.classList.add('hidden');el.classList.remove('flex');};
-        _d.b6.addEventListener('click',()=>o(_d.m1));
-        _d.b7.addEventListener('click',()=>c(_d.m1));
-        _d.b8.addEventListener('click',()=>o(_d.m2));
-        _d.b9.addEventListener('click',()=>c(_d.m2));
-        ms.forEach(el=>el.addEventListener('click',e=>{if(e.target===el)c(el);}));
+    function setupModals() {
+        const modals = document.querySelectorAll('.modal');
+        const openModal = el => { el.classList.remove('hidden'); el.classList.add('flex'); };
+        const closeModal = el => { el.classList.add('hidden'); el.classList.remove('flex'); };
+        
+        DOM.openStyleModalBtn.addEventListener('click', () => openModal(DOM.styleModal));
+        DOM.closeStyleModalBtn.addEventListener('click', () => closeModal(DOM.styleModal));
+        DOM.openGuideModalBtn.addEventListener('click', () => openModal(DOM.guideModal));
+        DOM.closeGuideModalBtn.addEventListener('click', () => closeModal(DOM.guideModal));
+        
+        modals.forEach(el => el.addEventListener('click', e => { if (e.target === el) closeModal(el); }));
     }
 
-    function _f14(){
-        if(!_cD)return;
-        const w=_d.i4.value.trim();
-        let ho=null;
-        if(w.length>0){
-            const htr=hx=>{const rs=/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hx);return rs?`${parseInt(rs[1],16)}, ${parseInt(rs[2],16)}, ${parseInt(rs[3],16)}`:null;};
-            const r=htr(_d.i5.value);
-            let ss=`color: ${_d.i5.value}; padding: 0 4px; border-radius: 4px;`;
-            if(r)ss+=`background-color: rgba(${r}, 0.2);`;
-            if(_d.c1.checked)ss+='font-weight: 800; text-shadow: 0px 0px 8px rgba(255,255,255,0.3);';
-            if(_d.c2.checked)ss+='font-style: italic;';
-            if(_d.c3.checked)ss+='text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 3px;';
-            ho={w,s:ss};
+    function refreshDisplay() {
+        if (!currentData) return;
+        const word = DOM.highlightInput.value.trim();
+        let highlightOpt = null;
+        
+        if (word.length > 0) {
+            const hexToRgb = hex => {
+                const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : null;
+            };
+            const rgb = hexToRgb(DOM.highlightColor.value);
+            let styleStr = `color: ${DOM.highlightColor.value}; padding: 0 4px; border-radius: 4px;`;
+            if (rgb) styleStr += `background-color: rgba(${rgb}, 0.2);`;
+            if (DOM.highlightBold.checked) styleStr += 'font-weight: 800; text-shadow: 0px 0px 8px rgba(255,255,255,0.3);';
+            if (DOM.highlightItalic.checked) styleStr += 'font-style: italic;';
+            if (DOM.highlightUnderline.checked) styleStr += 'text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 3px;';
+            highlightOpt = { word, style: styleStr };
         }
-        if(_cD.isCustom){
-            let t=_cD.text.replace(/\n/g,'<br>');
-            if(ho&&ho.w)t=t.replace(new RegExp(ho.w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'g'),m=>`<span style="${ho.s}">${m}</span>`);
-            _f11(t,"",true);
-        }else{
-            _f11(_f10(_cD.v,ho,_iMV),_cD.a,false);
+
+        if (currentData.isCustom) {
+            let t = currentData.text.replace(/\n/g, '<br>');
+            if (highlightOpt && highlightOpt.word) {
+                t = t.replace(new RegExp(highlightOpt.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), match => `<span style="${highlightOpt.style}">${match}</span>`);
+            }
+            renderToProjector(t, "", true);
+        } else {
+            renderToProjector(formatVerseHTML(currentData.v, highlightOpt, isMultiVerseMode), currentData.a, false);
         }
     }
 
-    function _f15(){
-        _d.i4.value='';_d.c1.checked=false;_d.c2.checked=false;_d.c3.checked=false;_f14();
+    function clearHighlight() {
+        DOM.highlightInput.value = '';
+        DOM.highlightBold.checked = false;
+        DOM.highlightItalic.checked = false;
+        DOM.highlightUnderline.checked = false;
+        refreshDisplay();
     }
 
-    function _f16(){
-        _cV=[];
-        document.querySelectorAll('#result-display input[type="checkbox"]').forEach(c=>c.checked=false);
-        _f17();
+    function clearCheckboxes() {
+        checkedVerses = [];
+        document.querySelectorAll('#result-display input[type="checkbox"]').forEach(c => c.checked = false);
+        toggleMultiVerseBtn();
     }
 
-    function _f17(){
-        if(_cV.length>0){_d.v4.classList.remove('hidden');_d.v4.classList.add('animate-fade-in');}
-        else _d.v4.classList.add('hidden');
+    function toggleMultiVerseBtn() {
+        if (checkedVerses.length > 0) {
+            DOM.selectionControls.classList.remove('hidden');
+            DOM.selectionControls.classList.add('animate-fade-in');
+        } else {
+            DOM.selectionControls.classList.add('hidden');
+        }
     }
 
-    function _f18(){
-        if(!_cV.length)return;
-        _cV.sort((a,b)=>{if(a.book!==b.book)return a.book-b.book;if(a.chapter!==b.chapter)return a.chapter-b.chapter;return a.verse-b.verse;});
-        _cD={v:_cV,a:""}; _iMV=true; _f14();
+    function displayCheckedVerses() {
+        if (!checkedVerses.length) return;
+        checkedVerses.sort((a, b) => {
+            if (a.book !== b.book) return a.book - b.book;
+            if (a.chapter !== b.chapter) return a.chapter - b.chapter;
+            return a.verse - b.verse;
+        });
+        currentData = { v: checkedVerses, a: "" };
+        isMultiVerseMode = true;
+        refreshDisplay();
     }
 
-    function _f19(){
-        _d.i1.value='';_d.i2.value='';_d.i3.value='';_d.i4.value='';
-        _d.c1.checked=false;_d.c2.checked=false;_d.c3.checked=false;
-        _d.v3.innerHTML='<p class="text-slate-500 text-center">이곳에 검색 결과가 표시됩니다.</p>';
-        _f16(); _cD=null;
-        if(_pw&&!_pw.closed){
-            const pc=_pw.document.getElementById('verse-container');
-            if(pc){
-                pc.style.opacity=0;
-                setTimeout(()=>{
-                    const pt=_pw.document.getElementById('verse-text'), pa=_pw.document.getElementById('verse-address');
-                    let iu='icon.ico';try{if(!window.location.href.startsWith('blob:')&&!window.location.href.startsWith('data:'))iu=new URL('icon.ico',window.location.href).href;}catch(e){}
-                    let fi="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2360a5fa%22 stroke-width=%221.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20%22/%3E%3Cpath d=%22M12 6v6%22/%3E%3Cpath d=%22M9 9h6%22/%3E%3C/svg%3E";
-                    pt.innerHTML=`<div class="flex items-center justify-center h-[calc(100vh-6rem)] w-full"><img src="${iu}" alt="로고" style="max-width: 400px; max-height: 400px; object-fit: contain; filter: drop-shadow(0 0 20px rgba(255,255,255,0.15));" onerror="this.onerror=null;this.src='${fi}'"></div>`;
-                    pt.parentElement.parentElement.classList.remove('justify-start');
-                    pt.parentElement.parentElement.classList.add('justify-center');
-                    pa.innerHTML='';
-                    pc.style.opacity=1;
-                },300);
+    function resetAll() {
+        DOM.verseInput.value = '';
+        DOM.keywordInput.value = '';
+        DOM.customTextInput.value = '';
+        DOM.highlightInput.value = '';
+        DOM.highlightBold.checked = false;
+        DOM.highlightItalic.checked = false;
+        DOM.highlightUnderline.checked = false;
+        DOM.resultDisplay.innerHTML = '<p class="text-slate-500 text-center">이곳에 검색 결과가 표시됩니다.</p>';
+        clearCheckboxes();
+        currentData = null;
+        
+        if (projectorWindow && !projectorWindow.closed) {
+            const pContainer = projectorWindow.document.getElementById('verse-container');
+            if (pContainer) {
+                pContainer.style.opacity = 0;
+                setTimeout(() => {
+                    const pText = projectorWindow.document.getElementById('verse-text');
+                    const pAddress = projectorWindow.document.getElementById('verse-address');
+                    let iconUrl = 'icon.ico';
+                    try { if (!window.location.href.startsWith('blob:') && !window.location.href.startsWith('data:')) iconUrl = new URL('icon.ico', window.location.href).href; } catch(e){}
+                    let fallbackIcon = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2360a5fa%22 stroke-width=%221.5%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22%3E%3Cpath d=%22M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20%22/%3E%3Cpath d=%22M12 6v6%22/%3E%3Cpath d=%22M9 9h6%22/%3E%3C/svg%3E";
+                    
+                    pText.innerHTML = `<div class="flex items-center justify-center h-[calc(100vh-6rem)] w-full"><img src="${iconUrl}" alt="로고" style="max-width: 400px; max-height: 400px; object-fit: contain; filter: drop-shadow(0 0 20px rgba(255,255,255,0.15));" onerror="this.onerror=null;this.src='${fallbackIcon}'"></div>`;
+                    pText.parentElement.parentElement.classList.remove('justify-start');
+                    pText.parentElement.parentElement.classList.add('justify-center');
+                    pAddress.innerHTML = '';
+                    pContainer.style.opacity = 1;
+                }, 300);
             }
         }
     }
 
-    _d.b1.addEventListener('click',_f7);
-    _d.b10.addEventListener('click',_f7);
-    _d.b2.addEventListener('click',_f8);
-    _d.i1.addEventListener('keyup',e=>{if(e.key==='Enter')_d.b2.click();});
-    _d.b3.addEventListener('click',_f9);
-    _d.i2.addEventListener('keyup',e=>{if(e.key==='Enter')_f9();});
-    _d.b4.addEventListener('click',()=>{_f16();const t=_d.i3.value.trim();if(!t)return;_cD={isCustom:true,text:t};_iMV=false;_f14();});
-    _d.i3.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();_d.b4.click();}});
-    _d.s1.addEventListener('input',_f12);
-    _d.s3.addEventListener('input',_f12);
-    _d.b11.addEventListener('click',_f14);
-    _d.i4.addEventListener('keyup',e=>{if(e.key==='Enter')_f14();});
-    _d.b12.addEventListener('click',_f15);
-    _d.b5.addEventListener('click',_f18);
-    _d.b13.addEventListener('click',_f19);
-    _f13();
+    // 이벤트 리스너 등록
+    DOM.openWindowBtn.addEventListener('click', openProjectorWindow);
+    DOM.reopenWindowBtn.addEventListener('click', openProjectorWindow);
+    DOM.displayBtn.addEventListener('click', handleVerseSearch);
+    DOM.verseInput.addEventListener('keyup', e => { if (e.key === 'Enter') DOM.displayBtn.click(); });
+    DOM.keywordSearchBtn.addEventListener('click', handleKeywordSearch);
+    DOM.keywordInput.addEventListener('keyup', e => { if (e.key === 'Enter') handleKeywordSearch(); });
+    DOM.customTextBtn.addEventListener('click', () => {
+        clearCheckboxes();
+        const text = DOM.customTextInput.value.trim();
+        if (!text) return;
+        currentData = { isCustom: true, text };
+        isMultiVerseMode = false;
+        refreshDisplay();
+    });
+    DOM.customTextInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); DOM.customTextBtn.click(); }});
+    DOM.fontSizeSlider.addEventListener('input', applyStylesToProjector);
+    DOM.lineHeightSlider.addEventListener('input', applyStylesToProjector);
+    DOM.applyHighlightBtn.addEventListener('click', refreshDisplay);
+    DOM.highlightInput.addEventListener('keyup', e => { if (e.key === 'Enter') refreshDisplay(); });
+    DOM.removeHighlightBtn.addEventListener('click', clearHighlight);
+    DOM.displayCheckedBtn.addEventListener('click', displayCheckedVerses);
+    DOM.resetBtn.addEventListener('click', resetAll);
 
-})();
+    setupModals();
 </script>
 </body>
 </html>
