@@ -326,15 +326,15 @@
             });
         }
 
-        function parseVerseQuery(query) {
-            query = query.trim().toLowerCase();
-            const match = query.match(/^([가-힣\d]+)[\s\.]*(\d+)[\s]*[:\.]?[\s]*(\d+)(?:[\s-]*(\d+))?$/);
-            if (!match) return null;
-            const bookStr = match[1], ch = parseInt(match[2], 10), startV = parseInt(match[3], 10), endV = match[4] ? parseInt(match[4], 10) : startV;
-            const bookId = bookSearchMap[bookStr];
-            if (!bookId || isNaN(ch) || isNaN(startV)) return null;
-            return { id: bookId, n: bookNameMap[bookId].n, c: ch, s: startV, e: endV };
-        }
+        function parseVerseQuery(query) query = query.trim().toLowerCase();
+        // 띄어쓰기 없이도 글자와 숫자를 영리하게 분리하고, '장', '절', '~' 기호도 지원하도록 정규식 대폭 개선
+        const match = query.match(/^([가-힣a-zA-Z\d]+?)[\s\.]*(\d+)[\s]*[장:\.]?[\s]*(\d+)[절]?(?:[\s\-~]*(\d+)[절]?)?$/);
+        if (!match) return null;
+        const bookStr = match[1], ch = parseInt(match[2], 10), startV = parseInt(match[3], 10), endV = match[4] ? parseInt(match[4], 10) : startV;
+        const bookId = bookSearchMap[bookStr];
+        if (!bookId || isNaN(ch) || isNaN(startV)) return null;
+        return { id: bookId, n: bookNameMap[bookId].n, c: ch, s: startV, e: endV };
+    }
 
         function fetchVerses(parsed) {
             if (!dbInstance || !parsed) return null;
