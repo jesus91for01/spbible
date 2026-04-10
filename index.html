@@ -326,7 +326,8 @@
             });
         }
 
-        function parseVerseQuery(query) query = query.trim().toLowerCase();
+    function parseVerseQuery(query) {
+        query = query.trim().toLowerCase();
         // 띄어쓰기 없이도 글자와 숫자를 영리하게 분리하고, '장', '절', '~' 기호도 지원하도록 정규식 대폭 개선
         const match = query.match(/^([가-힣a-zA-Z\d]+?)[\s\.]*(\d+)[\s]*[장:\.]?[\s]*(\d+)[절]?(?:[\s\-~]*(\d+)[절]?)?$/);
         if (!match) return null;
